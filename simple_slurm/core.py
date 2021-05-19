@@ -14,7 +14,7 @@ class Slurm():
     Multiple syntaxes are allowed for defining the arguments.
     '''
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, node=None, *args, **kwargs):
         '''Initialize the parser with the given arguments.'''
 
         # initialize parser
@@ -39,6 +39,14 @@ class Slurm():
 
         # add provided arguments in constructor
         self.add_arguments(*args, **kwargs)
+        
+        self._add_one_argument("qos", "general-8000")
+        self._add_one_argument("output", r"%x::%j.out")
+        if node in ["nova", "ruby"]:
+            self._add_one_argument("gres", "gpu:8000:1")
+        elif node in ["gary", "ellie", "lisa"]:
+            self._add_one_argument("gres", "gpu:2080:1")
+            
 
     def __str__(self) -> str:
         '''Print the generated sbatch script.'''
