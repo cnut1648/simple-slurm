@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import subprocess
 
@@ -14,8 +15,17 @@ class Slurm():
     Multiple syntaxes are allowed for defining the arguments.
     '''
 
-    def __init__(self, node=None, *args, **kwargs):
+    def __init__(self, node=None, logFile="/home/jiashu/FactSelection/FS/outs/master.log",
+                  *args, **kwargs):
         '''Initialize the parser with the given arguments.'''
+        # logging init
+        logging.basicConfig(
+            filename = logFile,
+            filemode = 'a',
+            level = logging.DEBUG,
+            format = '%(asctime)s - %(levelname)s: %(message)s',
+            datefmt = '%m/%d/%Y %I:%M:%S %p' 
+        )
 
         # initialize parser
         self.namespace = Namespace()
@@ -41,16 +51,19 @@ class Slurm():
         self.add_arguments(*args, **kwargs)
         
         self._add_one_argument("qos", "general-8000")
-        self._add_one_argument("output", r"%x::%j.out")
+        self._add_one_argument("output", r"outs/%x::%j.out")
         if node in ["nova", "ruby"]:
             self._add_one_argument("gres", "gpu:8000:1")
         elif node in ["gary", "ellie", "lisa"]:
             self._add_one_argument("gres", "gpu:2080:1")
-            
+        self.__add_one_argument("nodelist", node) 
 
     def __str__(self) -> str:
         '''Print the generated sbatch script.'''
         return self.arguments()
+    
+    def log(self, message):
+        logging.debug(message)
 
     def __repr__(self) -> str:
         '''Print the argparse namespace.'''
