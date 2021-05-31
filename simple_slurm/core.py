@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import subprocess
+import inspect
 
 
 class Slurm():
@@ -15,17 +16,13 @@ class Slurm():
     Multiple syntaxes are allowed for defining the arguments.
     '''
 
-    def __init__(self, node=None, logFile="/home/jiashu/FactSelection/FS/outs/master.log",
-                  *args, **kwargs):
+    def __init__(self, 
+                node=None, 
+                logFile="/home/jiashu/FactSelection/FS/outs/master.log",
+                name=None, 
+                *args, 
+                **kwargs):
         '''Initialize the parser with the given arguments.'''
-        # logging init
-        logging.basicConfig(
-            filename = logFile,
-            filemode = 'a',
-            level = logging.DEBUG,
-            format = '%(asctime)s - %(levelname)s: %(message)s',
-            datefmt = '%m/%d/%Y %I:%M:%S %p' 
-        )
 
         # initialize parser
         self.namespace = Namespace()
@@ -50,19 +47,57 @@ class Slurm():
         # add provided arguments in constructor
         self.add_arguments(*args, **kwargs)
         
+        if not name:
+            name = Slurm.SLURM_JOB_NAME
+        else:
+            self._add_one_argument("job_name", name)
+        
         self._add_one_argument("qos", "general-8000")
-        self._add_one_argument("output", r"outs/%x::%j.out")
+        self._add_one_argument("output", f"outs/{name}::%j.out")
         if node in ["nova", "ruby"]:
             self._add_one_argument("gres", "gpu:8000:1")
         elif node in ["gary", "ellie", "lisa"]:
             self._add_one_argument("gres", "gpu:2080:1")
-        self.__add_one_argument("nodelist", node) 
+        self._add_one_argument("nodelist", f"ink-{node}") 
+
+        # logging init
+        logging.basicConfig(
+            filename = logFile,
+            filemode = 'a',
+            level = logging.DEBUG,
+            format = '%(asctime)s - %(levelname)s: %(message)s' + f" (ID={Slurm.SLURM_JOB_NAME}, NAME={name})",
+            datefmt = '%m/%d/%Y %I:%M:%S %p' 
+        )
+        
+        self.allocated_process = None
+
+    def allocate(self):
+        """allocate gpu mem from Slurm
+        same as srun bash
+        use `run` to run commands that will use the allocated memory
+        blocking until resource allocated"""
+        assert self.allocated_process is None
+        
+        args = (
+            f'--{self._valid_key(k)}={v}'
+            for k, v in vars(self.namespace).items() if v is not None
+        )
+        cmd = ' '.join(('srun', *args, 'bash'))
+        print(cmd)
+        self.allocated_process = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE
+        )
+        # self.allocated_process.communicate()
+
 
     def __str__(self) -> str:
         '''Print the generated sbatch script.'''
         return self.arguments()
     
     def log(self, message):
+        print(message)
         logging.debug(message)
 
     def __repr__(self) -> str:
@@ -122,10 +157,19 @@ class Slurm():
         )
         script_cmd = '\n'.join((f'#!{shell}', '', *args, ''))
         return script_cmd
+    
+    def run(self, run_cmd: str) -> int:
+        """bash command
+        use `run` thus blocking
+        """
+        process = subprocess.run(run_cmd, shell=True, check=True)
+        return process.returncode
+        
 
     def srun(self, run_cmd: str, srun_cmd: str = 'srun') -> int:
         '''Run the srun command with all the (previously) set arguments and
         the provided command to in 'run_cmd'.
+        use `run` thus blocking
         '''
         args = (
             f'--{self._valid_key(k)}={v}'
