@@ -10,9 +10,9 @@ class TuneCommand:
 
         self.config = "NOCONFIG"
 
-        self.text = self._getParam("text", "bert_base_uncased")
-        self.graph = self._getParam("graph", "mhgrn")
-        self.dataset = self._getParam("dataset", "csqa")
+        self.text = self._getParam("text", "must_have")
+        self.graph = self._getParam("graph", "must_have")
+        self.dataset = self._getParam("dataset", "must_have")
 
         self.text_lr = self._getParam("tlr", 1e-5)
         self.graph_lr = self._getParam("glr", 1e-3)
@@ -69,6 +69,7 @@ class TuneCommand:
         )
 
     def _getParam(self, key: str, default):
+        assert default != "must_have", f"parameter {key} must be set manually"
         return self.kwargs.get(key, default)
 
 class QACommand(TuneCommand):
@@ -95,7 +96,7 @@ class FineCommand(TuneCommand):
         self.config = f"configs/saliency/{self.dataset}/{self.graph}/fine/grad/target/{self.text}__quadro-rtx-8000__{self.graph}__SALKG_FINE.ini"
         self.sal_loss_weight = self._getParam("sal_loss", 1)
         # saved fine saliency (from QA)
-        self.sal_exp = self._getParam("sal_exp", 0)
+        self.sal_exp = self._getParam("sal_exp", "must_have")
         self.criterion = self._getParam("criterion", "KL_loss")
         self.attn_bound = self._getParam("attn_bound", 10)
         self.saliency_method = self._getParam("sal_method", "occl")
@@ -104,12 +105,12 @@ class FineCommand(TuneCommand):
 
     def command(self, d) -> str:
         base = super().command(d)
-        coarse_command = (
+        fine_command = (
             f'--criterion {d["criterion"]} --attn_bound {d["attn_bound"]} --sal_loss_weight {d["sal_loss_weight"]} '
             f'--saliency_exp {d["sal_exp"]} --saliency_method {d["saliency_method"]} '
             f'--saliency_heuristic {d["saliency_heuristic"]} --saliency_value {d["saliency_value"]} '
         )
-        return base + coarse_command
+        return base + fine_command
 
 
 if __name__ == '__main__':
