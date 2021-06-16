@@ -80,12 +80,22 @@ class CoarseCommand(TuneCommand):
         super().__init__(**kwargs)
         self.config = f"configs/saliency/{self.dataset}/{self.graph}/coarse/pred/{self.text}__quadro-rtx-8000__{self.graph}_pqa.ini"
         self.sal_loss_weight = self._getParam("sal_loss", 1)
+        self.no_kg_exp = self._getParam("no_kg_exp", "must_have")
+        self.kg_exp = self._getParam("kg_exp", "must_have")
+        self.qa_no_kg_dir = f"/home/jiashu/save/FS-{self.no_kg_exp}/saliency/"
+        self.qa_kg_dir = f"/home/jiashu/save/FS-{self.kg_exp}/saliency/"
+        self.coarse_model = self._getParam("coarse_model", "ensemble")
+        self.no_kg_emb = self._getParam("no_kg_emb", "learned")
+        self.criterion = self._getParam("criterion", "ce_loss")
 
     def command(self, d) -> str:
         base = super().command(d)
         coarse_command = (
-            '--coarse_model ensemble --no_kg_emb learned '
             f'--sal_loss_weight {d["sal_loss_weight"]} '
+            f'--no_kg_exp {d["no_kg_exp"]} --qa_no_kg_dir {d["qa_no_kg_dir"]} '
+            f'--kg_exp {d["kg_exp"]} --qa_kg_dir {d["qa_kg_dir"]} '
+            f'--coarse_model {d["coarse_model"]} --no_kg_emb {d["no_kg_emb"]} '
+            f'--criterion {d["criterion"]} '
         )
         return base + coarse_command
 
