@@ -29,6 +29,8 @@ class TuneCommand:
         self.save_saliency = self._getParam("save_saliency", False)
         self.save_checkpoint = self._getParam("save_checkpoint", False)
         self.seed = self._getParam("seed", 0)
+        
+        self.train_percentage = self._getParam("train_percentage", 100)
 
     def _getLoopParams(self) -> list:
         """
@@ -57,6 +59,10 @@ class TuneCommand:
             self.len = reduce(mul, [len(p) for p in loop_params], 1)
         return self.len
 
+    def mkString(self, delim: str="+"*100) -> str:
+        """debug purpose"""
+        return (delim + "\n\n").join(cmd for cmd in self)
+
 
     def command(self, d: dict) -> str:
         return (
@@ -69,11 +75,14 @@ class TuneCommand:
         )
 
     def _getParam(self, key: str, default):
-        assert default != "must_have", f"parameter {key} must be set manually"
-        return self.kwargs.get(key, default)
+        param_val = self.kwargs.get(key, default)
+        assert param_val != "must_have", f"parameter {repr(key)} must be set manually"
+        return param_val
 
 class QACommand(TuneCommand):
-    pass
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.config = f"configs/qa/{self.dataset}/{self.graph}/{self.text}__quadro-rtx-8000.ini"
 
 class CoarseCommand(TuneCommand):
     def __init__(self, **kwargs):
@@ -82,23 +91,25 @@ class CoarseCommand(TuneCommand):
         self.sal_loss_weight = self._getParam("sal_loss", 1)
         self.no_kg_exp = self._getParam("no_kg_exp", "must_have")
         self.kg_exp = self._getParam("kg_exp", "must_have")
-        self.qa_no_kg_dir = f"/home/jiashu/save/FS-{self.no_kg_exp}/saliency/"
-        self.qa_kg_dir = f"/home/jiashu/save/FS-{self.kg_exp}/saliency/"
+        self.qa_no_kg_dir = f"/home/jiashu/FactSelection/save/FS-{self.no_kg_exp}/saliency/"
+        self.qa_kg_dir = f"/home/jiashu/FactSelection/save/FS-{self.kg_exp}/saliency/"
         self.coarse_model = self._getParam("coarse_model", "ensemble")
         self.no_kg_emb = self._getParam("no_kg_emb", "learned")
         self.criterion = self._getParam("criterion", "ce_loss")
+        # if occl, SalKG-Coarse; if qa, Coarse-Heuristic
+        self.saliency_method = self._getParam("saliency_method", "occl")
 
     def command(self, d) -> str:
         base = super().command(d)
         coarse_command = (
             f'--sal_loss_weight {d["sal_loss_weight"]} '
-            f'--no_kg_exp {d["no_kg_exp"]} --qa_no_kg_dir {d["qa_no_kg_dir"]} '
-            f'--kg_exp {d["kg_exp"]} --qa_kg_dir {d["qa_kg_dir"]} '
             f'--coarse_model {d["coarse_model"]} --no_kg_emb {d["no_kg_emb"]} '
             f'--criterion {d["criterion"]} '
+            f'--saliency_method {d["saliency_method"]} '
+            f'--no_kg_exp {d["no_kg_exp"]} --qa_no_kg_dir {d["qa_no_kg_dir"]} '
+            f'--kg_exp {d["kg_exp"]} --qa_kg_dir {d["qa_kg_dir"]} '
         )
         return base + coarse_command
-
 
 class FineCommand(TuneCommand):
     def __init__(self, **kwargs):
@@ -122,6 +133,53 @@ class FineCommand(TuneCommand):
         )
         return base + fine_command
 
+
+class HybridCommand(TuneCommand):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.config = f"configs/saliency/{self.dataset}/{self.graph}/hybrid/occl/pred/{self.text}__quadro-rtx-8000__{self.graph}_pqa.ini"
+
+        # fine saliency model's gnn lr
+        self.fine_graph_lr = self._getParam("fine_graph_lr", 1e-4)
+
+        # loss weight for coarse loss
+        self.sal_loss_weight = self._getParam("sal_loss", 1)
+        # fine loss = fine_qa_loss + fine_sal_loss_weight * fine_sal_loss
+        self.fine_sal_loss_weight = self._getParam("fine_sal_loss_weight", 1)
+        # loss weight for fine loss
+        self.fine_loss_weight = self._getParam("fine_loss_weight", 1)
+
+        # load coarse built dataset identified by no_kg_exp / kg_exp
+        # also load no_kg_exp saliency
+        self.kg_exp = self._getParam("kg_exp", "must_have")
+        self.qa_kg_dir = f"/home/jiashu/FactSelection/save/FS-{self.kg_exp}/saliency/"
+        self.no_kg_exp = self._getParam("no_kg_exp", "must_have")
+        self.qa_no_kg_dir = f"/home/jiashu/FactSelection/save/FS-{self.no_kg_exp}/saliency/"
+
+        # if not loading fine model from ckpt, provide QA model's built fine saliency dataset's exp id
+        self.sal_exp = self._getParam("sal_exp", "NOEXP")
+        # if loading from ckpt
+        self.fine_checkpoint_path = self._getParam("fine_ckpt", "NOCKPT")
+        # must provide one of them
+        assert self.sal_exp != "NOEXP" or self.fine_checkpoint_path != "NOCKPT"
+        
+        self.attn_bound = self._getParam("attn_bound", 100)
+        self.criterion = self._getParam("criterion", "KL_loss")
+        self.saliency_method = self._getParam("sal_method", "occl")
+
+    def command(self, d) -> str:
+        base = super().command(d)
+        ckpt_str = f"--fine_checkpoint_path {d['fine_checkpoint_path']}" if d["fine_checkpoint_path"] != "NOCKPT" else ""
+        fine_command = (
+            f'--criterion {d["criterion"]} --attn_bound {d["attn_bound"]}  '
+            f'--saliency_exp {d["sal_exp"]} --saliency_method {d["saliency_method"]} '
+            f'--fine_graph_lr {d["fine_graph_lr"]} --fine_sal_loss_weight {d["fine_sal_loss_weight"]} '
+            f'--fine_loss_weight {d["fine_loss_weight"]} --sal_loss_weight {d["sal_loss_weight"]} '
+            f'{ckpt_str} '
+            f'--no_kg_exp {d["no_kg_exp"]} --kg_exp {d["kg_exp"]} '
+            f'--qa_no_kg_dir {d["qa_no_kg_dir"]} --qa_kg_dir {d["qa_kg_dir"]} '
+        )
+        return base + fine_command
 
 if __name__ == '__main__':
     tc = FineCommand(tlr=[1e-5, 1e-3], glr=[3e-3, 2e-3], wd=0.02, pos_w=10, seed=[0, 1, 2], save_checkpoint=True,

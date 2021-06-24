@@ -1,8 +1,11 @@
 import argparse
 import logging
 import os
+import sys
 import subprocess
 import inspect
+
+from simple_slurm.cmd.SalKGCommand import TuneCommand
 
 
 class Slurm():
@@ -52,6 +55,7 @@ class Slurm():
         else:
             self._add_one_argument("job_name", name)
         
+        # ink-lab specific
         self._add_one_argument("qos", "general-8000")
         self._add_one_argument("output", f"outs/{name}::%j.out")
         if node in ["nova", "ruby"]:
@@ -59,13 +63,15 @@ class Slurm():
         elif node in ["gary", "ellie", "lisa"]:
             self._add_one_argument("gres", "gpu:2080:1")
         self._add_one_argument("nodelist", f"ink-{node}") 
+        self.caller_file = inspect.stack()[1].filename
+        print("init", self.caller_file)
 
         # logging init
         logging.basicConfig(
             filename = logFile,
             filemode = 'a',
             level = logging.DEBUG,
-            format = '%(asctime)s - %(levelname)s: %(message)s' + f" (ID={Slurm.SLURM_JOB_NAME}, NAME={name})",
+            format = '%(asctime)s - %(levelname)s: %(message)s' + f" (FILE={self.caller_file}, ID={Slurm.SLURM_JOB_NAME}, NAME={name})",
             datefmt = '%m/%d/%Y %I:%M:%S %p' 
         )
         
@@ -97,7 +103,7 @@ class Slurm():
         return self.arguments()
     
     def log(self, message):
-        print(message)
+        print(message, flush=True)
         logging.debug(message)
 
     def __repr__(self) -> str:
@@ -162,9 +168,23 @@ class Slurm():
         """bash command
         use `run` thus blocking
         """
-        process = subprocess.run(run_cmd, shell=True, check=True)
-        return process.returncode
+        try:
+            process = subprocess.run(run_cmd, shell=True, check=True)
+            return process.returncode
+        except subprocess.CalledProcessError as e:
+            self.log(e)
+            return e.returncode
         
+    def runTune(self, tune: TuneCommand, blocking=True):
+        if blocking:
+            for i, cmd in enumerate(tune, 1):
+                self.log(f"{i} / {len(tune)}: {cmd}")
+                ret = self.run(cmd)
+                if ret != 0:
+                    self.log(f"ERROR: {cmd}")
+        else:
+            self.sbatch(tune.mkString(";"), verbose=True)
+
 
     def srun(self, run_cmd: str, srun_cmd: str = 'srun') -> int:
         '''Run the srun command with all the (previously) set arguments and
@@ -198,6 +218,8 @@ class Slurm():
         For such reason if any bash variable is employed by the 'run_command',
         the '$' should be scaped into '\$'. This behavior is default, set
         'convert' to False to disable it.
+        
+        Use .sbatch("cmd1; \ncmd2") to run multiple cmds in one call
         '''
         cmd = '\n'.join((
             sbatch_cmd + ' << EOF',
@@ -210,7 +232,7 @@ class Slurm():
         stdout = result.stdout.decode('utf-8')
         assert success_msg in stdout, result.stderr
         if verbose:
-            print(stdout)
+            print(stdout, flush=True)
         job_id = int(stdout.split(' ')[3])
         return job_id
 
