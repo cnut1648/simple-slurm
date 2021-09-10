@@ -57,7 +57,7 @@ class Slurm():
         
         # ink-lab specific
         self._add_one_argument("qos", "general-8000")
-        self._add_one_argument("output", f"outs/{name}::%j.out")
+        self._add_one_argument("output", f"outs/{name}::%j%N.out")
         if node in ["nova", "ruby"]:
             self._add_one_argument("gres", "gpu:8000:1")
         elif node in ["gary", "ellie", "lisa"]:
@@ -74,28 +74,6 @@ class Slurm():
             format = '%(asctime)s - %(levelname)s: %(message)s' + f" (FILE={self.caller_file}, ID={Slurm.SLURM_JOB_NAME}, NAME={name})",
             datefmt = '%m/%d/%Y %I:%M:%S %p' 
         )
-        
-        self.allocated_process = None
-
-    def allocate(self):
-        """allocate gpu mem from Slurm
-        same as srun bash
-        use `run` to run commands that will use the allocated memory
-        blocking until resource allocated"""
-        assert self.allocated_process is None
-        
-        args = (
-            f'--{self._valid_key(k)}={v}'
-            for k, v in vars(self.namespace).items() if v is not None
-        )
-        cmd = ' '.join(('srun', *args, 'bash'))
-        print(cmd)
-        self.allocated_process = subprocess.Popen(
-            cmd,
-            shell=True,
-            stdout=subprocess.PIPE
-        )
-        # self.allocated_process.communicate()
 
 
     def __str__(self) -> str:
@@ -183,7 +161,7 @@ class Slurm():
                 if ret != 0:
                     self.log(f"ERROR: {cmd}")
         else:
-            self.sbatch(tune.mkString(";"), verbose=True)
+            self.sbatch(tune.mkString(";", echo=True), verbose=True)
 
 
     def srun(self, run_cmd: str, srun_cmd: str = 'srun') -> int:
